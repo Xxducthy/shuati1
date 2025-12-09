@@ -10,7 +10,7 @@ interface PracticeSessionProps {
 
 const PracticeSession: React.FC<PracticeSessionProps> = ({ questionSet, onExit }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [shuffledQuestions, setShuffledQuestions] = useState<Question[]>([]);
+  const [shuffledQuestions, setShuffledQuestions] = useState<Question[] | null>(null);
   
   // Current Question State
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
@@ -26,10 +26,45 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({ questionSet, onExit }
   const [score, setScore] = useState(0);
 
   useEffect(() => {
-    // Shuffle questions on mount
-    const shuffled = [...questionSet.questions].sort(() => Math.random() - 0.5);
-    setShuffledQuestions(shuffled);
+    if (questionSet.questions.length > 0) {
+      // Shuffle questions on mount
+      const shuffled = [...questionSet.questions].sort(() => Math.random() - 0.5);
+      setShuffledQuestions(shuffled);
+    } else {
+      setShuffledQuestions([]);
+    }
   }, [questionSet]);
+
+  // Loading state
+  if (shuffledQuestions === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center">
+           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+           <p className="text-gray-500">Preparing session...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Empty state
+  if (shuffledQuestions.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div className="bg-white p-8 rounded-xl shadow-sm text-center max-w-md">
+           <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+           <h3 className="text-xl font-bold text-gray-900 mb-2">No Questions Available</h3>
+           <p className="text-gray-500 mb-6">This set has no questions to practice. Add some questions or generate them with AI first.</p>
+           <button 
+             onClick={onExit}
+             className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-indigo-700 font-medium"
+           >
+             Go Back
+           </button>
+        </div>
+      </div>
+    );
+  }
 
   const currentQuestion = shuffledQuestions[currentIndex];
 
@@ -85,12 +120,10 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({ questionSet, onExit }
       setAiFeedback(null);
       setIsCorrect(false);
     } else {
-      // Finished
+      // Finished - handled by render logic below
       setCurrentIndex(prev => prev + 1);
     }
   };
-
-  if (shuffledQuestions.length === 0) return <div className="p-10 text-center">Loading practice...</div>;
 
   // Results Screen
   if (currentIndex >= shuffledQuestions.length) {
@@ -130,6 +163,9 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({ questionSet, onExit }
       </div>
     );
   }
+
+  // Double check we have a question before rendering
+  if (!currentQuestion) return null;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">

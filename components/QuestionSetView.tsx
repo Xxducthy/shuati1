@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { QuestionSet, Question, LoadingState } from '../types';
 import { saveQuestionSet, createInitialId } from '../services/storageService';
-import { generateQuestionsFromText } from '../services/geminiService';
-import { ArrowLeft, Play, Sparkles, Plus, Trash2, Edit2, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { generateQuestionsFromText, generateQuestionsFromImage } from '../services/geminiService';
+import { ArrowLeft, Play, Sparkles, Plus, Trash2, Edit2, CheckCircle2, AlertCircle, X, Image as ImageIcon, FileText, Upload } from 'lucide-react';
 
 interface QuestionSetViewProps {
   questionSet: QuestionSet;
@@ -18,11 +18,13 @@ const QuestionSetView: React.FC<QuestionSetViewProps> = ({ questionSet, onBack, 
   const [newQContent, setNewQContent] = useState('');
   const [newQType, setNewQType] = useState<'choice' | 'text'>('choice');
   const [newQOptions, setNewQOptions] = useState<string[]>(['', '', '', '']);
-  const [newQCorrect, setNewQCorrect] = useState(''); // Stores text of correct answer
+  const [newQCorrect, setNewQCorrect] = useState(''); 
   const [newQExplanation, setNewQExplanation] = useState('');
 
   // AI Generation State
+  const [genMode, setGenMode] = useState<'text' | 'image'>('text');
   const [sourceText, setSourceText] = useState('');
+  const [selectedImage, setSelectedImage] = useState<{data: string, mime: string} | null>(null);
   const [genCount, setGenCount] = useState(5);
   const [genState, setGenState] = useState<LoadingState>(LoadingState.IDLE);
   const [genError, setGenError] = useState('');
@@ -66,14 +68,38 @@ const QuestionSetView: React.FC<QuestionSetViewProps> = ({ questionSet, onBack, 
     setActiveTab('list');
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        // Extract pure base64 part
+        const base64Data = base64String.split(',')[1];
+        setSelectedImage({
+          data: base64Data,
+          mime: file.type
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleGenerate = async () => {
-    if (!sourceText.trim()) return;
+    if (genMode === 'text' && !sourceText.trim()) return;
+    if (genMode === 'image' && !selectedImage) return;
     
     setGenState(LoadingState.LOADING);
     setGenError('');
 
     try {
-      const questions = await generateQuestionsFromText(sourceText, genCount, 'choice'); // Defaulting to choice for now in UI
+      let questions: Question[] = [];
+      if (genMode === 'text') {
+        questions = await generateQuestionsFromText(sourceText, genCount, 'choice');
+      } else if (selectedImage) {
+        questions = await generateQuestionsFromImage(selectedImage.data, selectedImage.mime, genCount, 'choice');
+      }
+
       const updatedSet = {
         ...questionSet,
         questions: [...questionSet.questions, ...questions]
@@ -82,13 +108,14 @@ const QuestionSetView: React.FC<QuestionSetViewProps> = ({ questionSet, onBack, 
       onUpdate(updatedSet);
       setGenState(LoadingState.SUCCESS);
       setSourceText('');
+      setSelectedImage(null);
       setTimeout(() => {
         setGenState(LoadingState.IDLE);
         setActiveTab('list');
       }, 1500);
-    } catch (e) {
+    } catch (e: any) {
       setGenState(LoadingState.ERROR);
-      setGenError("Failed to generate questions. Please try again later.");
+      setGenError(e.message || "Failed to generate questions. Please try again later.");
     }
   };
 
@@ -105,7 +132,7 @@ const QuestionSetView: React.FC<QuestionSetViewProps> = ({ questionSet, onBack, 
         <div className="flex gap-3">
            <button 
             onClick={() => setActiveTab('generate')}
-            className="flex items-center gap-2 px-4 py-2 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors font-medium"
+            className="flex items-center gap-2 px-4 py-2 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors font-medium border border-indigo-100"
           >
             <Sparkles className="w-4 h-4" /> AI Generate
           </button>
@@ -144,22 +171,26 @@ const QuestionSetView: React.FC<QuestionSetViewProps> = ({ questionSet, onBack, 
             <div className="space-y-4">
               {questionSet.questions.length === 0 ? (
                 <div className="text-center py-20">
-                    <p className="text-gray-500">No questions yet. Add some manually or use AI generation!</p>
+                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Sparkles className="w-8 h-8 text-gray-400" />
+                    </div>
+                    <p className="text-gray-500 font-medium">No questions yet.</p>
+                    <p className="text-gray-400 text-sm mt-1">Click "AI Generate" to create questions from your notes or exam papers.</p>
                 </div>
               ) : (
                 questionSet.questions.map((q, idx) => (
                     <div key={q.id} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all">
                         <div className="flex justify-between items-start gap-4">
-                            <div>
+                            <div className="flex-1">
                                 <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-500 mb-2">Q{idx + 1} • {q.type === 'choice' ? 'Multiple Choice' : 'Short Answer'}</span>
                                 <h4 className="font-medium text-gray-900 text-lg mb-2">{q.content}</h4>
-                                <div className="text-sm text-green-700 bg-green-50 inline-block px-3 py-1 rounded-lg">
-                                    Answer: {q.correctAnswer}
+                                <div className="text-sm text-green-700 bg-green-50 inline-block px-3 py-1 rounded-lg break-words max-w-full">
+                                    <span className="font-semibold">Answer:</span> {q.correctAnswer}
                                 </div>
                             </div>
                             <button 
                                 onClick={() => handleDeleteQuestion(q.id)}
-                                className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                                className="text-gray-400 hover:text-red-500 transition-colors p-2 hover:bg-red-50 rounded-lg"
                             >
                                 <Trash2 className="w-5 h-5" />
                             </button>
@@ -182,11 +213,11 @@ const QuestionSetView: React.FC<QuestionSetViewProps> = ({ questionSet, onBack, 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Question Type</label>
                         <div className="flex gap-4">
-                            <label className="flex items-center gap-2 cursor-pointer">
+                            <label className="flex items-center gap-2 cursor-pointer p-2 border rounded-lg hover:bg-gray-50">
                                 <input type="radio" name="qType" checked={newQType === 'choice'} onChange={() => setNewQType('choice')} className="text-primary focus:ring-primary"/>
                                 <span>Multiple Choice</span>
                             </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
+                            <label className="flex items-center gap-2 cursor-pointer p-2 border rounded-lg hover:bg-gray-50">
                                 <input type="radio" name="qType" checked={newQType === 'text'} onChange={() => setNewQType('text')} className="text-primary focus:ring-primary"/>
                                 <span>Short Answer</span>
                             </label>
@@ -284,7 +315,7 @@ const QuestionSetView: React.FC<QuestionSetViewProps> = ({ questionSet, onBack, 
                 {genState === LoadingState.LOADING ? (
                     <div className="py-20 text-center">
                         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-                        <p className="text-gray-600 font-medium">Analyzing text and generating questions...</p>
+                        <p className="text-gray-600 font-medium">Analyzing {genMode} and generating questions...</p>
                         <p className="text-gray-400 text-sm mt-2">This may take a few seconds.</p>
                     </div>
                 ) : genState === LoadingState.SUCCESS ? (
@@ -296,27 +327,85 @@ const QuestionSetView: React.FC<QuestionSetViewProps> = ({ questionSet, onBack, 
                 ) : (
                     <div className="space-y-6">
                         {genError && (
-                            <div className="p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-2">
+                            <div className="p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-2 border border-red-100">
                                 <AlertCircle className="w-5 h-5"/> {genError}
                             </div>
                         )}
-                        <div>
-                             <label className="block text-sm font-medium text-gray-700 mb-1">Source Text</label>
-                             <p className="text-xs text-gray-500 mb-2">Paste your lecture notes, article, or summary here.</p>
-                             <textarea 
-                                value={sourceText}
-                                onChange={e => setSourceText(e.target.value)}
-                                className="w-full border border-gray-300 rounded-lg p-4 focus:ring-2 focus:ring-primary focus:border-primary outline-none"
-                                rows={8}
-                                placeholder="Paste text content here..."
-                             />
+
+                        {/* Mode Selection */}
+                        <div className="flex bg-gray-100 p-1 rounded-lg">
+                            <button 
+                                onClick={() => setGenMode('text')}
+                                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md font-medium transition-all ${genMode === 'text' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                <FileText className="w-4 h-4" /> From Text
+                            </button>
+                            <button 
+                                onClick={() => setGenMode('image')}
+                                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md font-medium transition-all ${genMode === 'image' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                <ImageIcon className="w-4 h-4" /> From Image
+                            </button>
                         </div>
+
+                        {genMode === 'text' ? (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Source Text</label>
+                                <p className="text-xs text-gray-500 mb-2">Paste your lecture notes, article, or summary here.</p>
+                                <textarea 
+                                    value={sourceText}
+                                    onChange={e => setSourceText(e.target.value)}
+                                    className="w-full border border-gray-300 rounded-lg p-4 focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+                                    rows={8}
+                                    placeholder="Paste text content here..."
+                                />
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Upload Image</label>
+                                <p className="text-xs text-gray-500 mb-2">Upload a photo of your exam paper, notes, or textbook.</p>
+                                
+                                <div className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${selectedImage ? 'border-primary bg-indigo-50' : 'border-gray-300 hover:border-gray-400'}`}>
+                                    <input 
+                                        type="file" 
+                                        accept="image/*"
+                                        onChange={handleImageUpload}
+                                        className="hidden" 
+                                        id="img-upload"
+                                    />
+                                    
+                                    {selectedImage ? (
+                                        <div className="relative">
+                                            <img src={`data:${selectedImage.mime};base64,${selectedImage.data}`} alt="Preview" className="max-h-64 mx-auto rounded shadow-sm" />
+                                            <button 
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    setSelectedImage(null);
+                                                }}
+                                                className="absolute -top-3 -right-3 bg-red-500 text-white p-1 rounded-full shadow hover:bg-red-600"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <label htmlFor="img-upload" className="cursor-pointer flex flex-col items-center">
+                                            <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-3">
+                                                <Upload className="w-6 h-6" />
+                                            </div>
+                                            <span className="text-primary font-medium hover:underline">Click to upload</span>
+                                            <span className="text-gray-400 text-sm mt-1">or drag and drop</span>
+                                        </label>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         <div className="flex items-center gap-4">
                             <label className="block text-sm font-medium text-gray-700">Number of Questions:</label>
                             <select 
                                 value={genCount}
                                 onChange={e => setGenCount(Number(e.target.value))}
-                                className="border border-gray-300 rounded-lg px-3 py-2"
+                                className="border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-primary"
                             >
                                 <option value={3}>3</option>
                                 <option value={5}>5</option>
@@ -325,7 +414,7 @@ const QuestionSetView: React.FC<QuestionSetViewProps> = ({ questionSet, onBack, 
                         </div>
                         <button 
                             onClick={handleGenerate}
-                            disabled={!sourceText.trim()}
+                            disabled={genMode === 'text' ? !sourceText.trim() : !selectedImage}
                             className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
                             <Sparkles className="w-5 h-5" /> Generate Questions
