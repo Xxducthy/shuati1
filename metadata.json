@@ -1,0 +1,5 @@
+{
+  "name": "ExamPrep AI",
+  "description": "A personalized exam practice tool. Create your own question sets or generate them from notes using Gemini AI. Practice with instant feedback and AI-powered explanations.",
+  "requestFramePermissions": []
+}
